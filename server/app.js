@@ -1,5 +1,6 @@
-// imports
 
+
+require("dotenv").config();
 const path = require("path");
 const express = require("express");
 const compression = require("compression");
@@ -9,13 +10,14 @@ const mongoose = require("mongoose");
 const expressHandlebars = require("express-handlebars");
 const helmet = require("helmet");
 const session = require("express-session");
-
+const RedisStore = require("connect-redis").default;
+const redis = require("redis");
 const router = require("./router.js");
 
-// done with imports
 
 const port = process.env.PORT || process.env.NODE_PORT || 3000;
 
+// setup mongoDB 
 const dbURI = process.env.MONGODB_URI || 'mongodb://127.0.0.1/domoMaker'
 mongoose.connect(dbURI).catch((err) => {
     if (err) {
@@ -24,32 +26,44 @@ mongoose.connect(dbURI).catch((err) => {
     }
 })
 
+// setup redis database
+const redisClient = redis.createClient({
+    url: process.env.REDISCLOUD_URL
+});
+
+redisClient.on("error", (err) => console.log("Redis Client Error", err));
+
 
 // setup handlebars and express
-const app = express();
+redisClient.connect().then(() => {
+    const app = express();
 
-app.use(helmet());
-app.use('/assets', express.static(path.resolve(`${__dirname}/../hosted/`)));
-app.use(favicon(`${__dirname}/../hosted/img/favicon.png`));
-app.use(compression());
-app.use(bodyParser.urlencoded({extended : true}));
-app.use(bodyParser.json());
+    app.use(helmet());
+    app.use('/assets', express.static(path.resolve(`${__dirname}/../hosted/`)));
+    app.use(favicon(`${__dirname}/../hosted/img/favicon.png`));
+    app.use(compression());
+    app.use(bodyParser.urlencoded({ extended: true }));
+    app.use(bodyParser.json());
 
-// use sessions to secure user logins
-app.use(session({
-    key: 'sessionid',
-    secret: 'domo arigato',
-    resave: false,
-    saveUninitialized: false
-}))
+    // use sessions to secure user logins
+    app.use(session({
+        key: 'sessionid',
+        store: new RedisStore({
+            client: redisClient
+        }),
+        secret: 'domo arigato',
+        resave: false,
+        saveUninitialized: false
+    }))
 
-app.engine('handlebars', expressHandlebars.engine({defaultLayout: ''}));
-app.set('view engine', 'handlebars');
-app.set('views', `${__dirname}/../views`);
+    app.engine('handlebars', expressHandlebars.engine({ defaultLayout: '' }));
+    app.set('view engine', 'handlebars');
+    app.set('views', `${__dirname}/../views`);
 
-router(app);
+    router(app);
 
-app.listen(port, (err) => {
-    if (err) throw err;
-    console.log(`Listening on port ${port}`);
-});
+    app.listen(port, (err) => {
+        if (err) throw err;
+        console.log(`Listening on port ${port}`);
+    });
+})
